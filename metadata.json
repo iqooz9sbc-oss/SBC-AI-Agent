@@ -1,0 +1,6 @@
+{
+  "name": "Personal AI Agent",
+  "description": "Autonomous Master AI Agent with Google Generative AI (Gemini), self-healing task execution, daily business manager & accounting, dynamic tri-lingual fluency (English, Bangla, Banglish), and freemium credit monetization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
