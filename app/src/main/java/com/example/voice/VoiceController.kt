@@ -5,6 +5,7 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import android.widget.Toast
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,11 @@ class VoiceController(private val context: Context) : TextToSpeech.OnInitListene
 
             val langResult = tts?.setLanguage(locale)
             if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                if (languageCode == "bn") {
+                    // An English voice reading Bengali text sounds broken/robotic, so ask for the Bengali voice instead.
+                    promptInstallVoiceData()
+                    return
+                }
                 // Fallback to default
                 tts?.language = Locale.US
             }
@@ -56,6 +62,21 @@ class VoiceController(private val context: Context) : TextToSpeech.OnInitListene
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "AI_SPEECH_ID")
         } catch (e: Exception) {
             Log.e("VoiceController", "Error speaking text", e)
+        }
+    }
+
+    private fun promptInstallVoiceData() {
+        try {
+            Toast.makeText(
+                context,
+                "Bengali voice is not installed. Install the Bengali (Bangladesh) voice, then try again.",
+                Toast.LENGTH_LONG
+            ).show()
+            val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+            installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(installIntent)
+        } catch (e: Exception) {
+            Log.e("VoiceController", "Could not open voice data installer", e)
         }
     }
 

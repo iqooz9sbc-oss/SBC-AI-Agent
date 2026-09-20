@@ -60,6 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.AIPersona
+import com.example.domain.model.AiProviderCatalog
+import com.example.domain.model.AiProviderInfo
+import com.example.domain.model.ProviderSetting
 import com.example.domain.model.AppLanguage
 import com.example.ui.components.CreditStoreDialog
 import com.example.ui.theme.CyberCyan
@@ -480,6 +483,48 @@ fun SettingsScreen(
             }
         }
 
+        // AI Providers & Auto-Fallback
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Cloud, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isBn) "এআই প্রোভাইডার ও অটো-ফলব্যাক" else "AI Providers & Auto-Fallback",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = if (isBn) {
+                        "Gemini ব্যর্থ হলে বা ফ্রি কোটা শেষ হলে নিচের প্রোভাইডারগুলো ওপর থেকে নিচে পর্যায়ক্রমে চেষ্টা করা হবে। কী না দিলে বা সুইচ বন্ধ থাকলে সেটি বাদ যাবে।"
+                    } else {
+                        "If Gemini fails or its free quota ends, the providers below are tried in order, top to bottom. A provider with no key, or with its switch off, is skipped."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                for (info in AiProviderCatalog.all) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ProviderEditor(
+                        info = info,
+                        setting = settings.providerSettings[info.id] ?: ProviderSetting(model = info.defaultModel),
+                        isBn = isBn,
+                        onSave = { key, model, enabled -> viewModel.saveProvider(info.id, key, model, enabled) }
+                    )
+                }
+            }
+        }
+
         // Voice Preferences
         Card(
             shape = RoundedCornerShape(16.dp),
@@ -636,5 +681,95 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+
+@Composable
+private fun ProviderEditor(
+    info: AiProviderInfo,
+    setting: ProviderSetting,
+    isBn: Boolean,
+    onSave: (String, String, Boolean) -> Unit
+) {
+    var keyInput by remember(setting.apiKey) { mutableStateOf(setting.apiKey) }
+    var modelInput by remember(setting.model) { mutableStateOf(setting.model.ifBlank { info.defaultModel }) }
+    var enabled by remember(setting.enabled) { mutableStateOf(setting.enabled) }
+    var showKey by remember { mutableStateOf(false) }
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = info.displayName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = info.note,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        onSave(keyInput, modelInput, it)
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = keyInput,
+                onValueChange = { keyInput = it },
+                label = { Text(info.displayName + " API Key") },
+                singleLine = true,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showKey = !showKey }) {
+                        Icon(
+                            imageVector = if (showKey) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = "Toggle key visibility"
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = modelInput,
+                onValueChange = { modelInput = it },
+                label = { Text("Model") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = { onSave(keyInput, modelInput, enabled) },
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricViolet),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(if (isBn) "সংরক্ষণ করুন" else "Save")
+            }
+        }
     }
 }

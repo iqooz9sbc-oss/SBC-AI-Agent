@@ -44,5 +44,6 @@ data class AgentSettings(
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val autoSpeakResponses: Boolean = false,
-    val useLocalTermuxServer: Boolean = false
+    val useLocalTermuxServer: Boolean = false,
+    val providerSettings: Map<String, ProviderSetting> = emptyMap()
 )

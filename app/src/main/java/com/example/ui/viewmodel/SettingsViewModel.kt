@@ -51,6 +51,11 @@ class SettingsViewModel(
         _statusMessage.value = "API key updated."
     }
 
+    fun saveProvider(id: String, apiKey: String, model: String, enabled: Boolean) {
+        settingsRepository.setProvider(id, apiKey.trim(), model.trim(), enabled)
+        _statusMessage.value = "Provider settings saved."
+    }
+
     fun setLocalEndpointUrl(url: String) {
         settingsRepository.setLocalEndpointUrl(url)
     }

@@ -1,6 +1,9 @@
 package com.example.engine
 
 import com.example.domain.model.AIPersona
+import com.example.domain.model.AiProviderCatalog
+import com.example.domain.model.AiProviderInfo
+import com.example.domain.model.ProviderFormat
 import com.example.domain.model.AgentSettings
 import com.example.domain.model.AppLanguage
 import com.example.domain.model.MemoryItem
@@ -71,7 +74,9 @@ class AIAgentEngine(
             )
         }
 
-        // Local Server (Termux / Ollama)
+        val failures = mutableListOf<String>()
+
+        // Local Server (Termux / Ollama): optional. If it is unreachable we continue with the cloud providers.
         if (settings.useLocalTermuxServer) {
             try {
                 return@withContext callLocalOllamaServer(
@@ -81,68 +86,53 @@ class AIAgentEngine(
                     memories = memories
                 )
             } catch (e: Exception) {
-                val fallback = generateOfflineResponse(prompt, detectedLanguage, settings.persona, memories, attachedImageUri != null)
-                return@withContext fallback.copy(
-                    content = "⚠️ [Local Server Unreachable - Switched to Local Smart Engine]\n\n" + fallback.content,
-                    modelTag = "Local Engine Fallback"
-                )
+                failures.add("Local server: ${shortError(e)}")
             }
         }
 
-        // Try Google Generative AI SDK if key exists
+        // 1) Gemini (existing behaviour: SDK first, REST as backup)
         val apiKey = getEffectiveApiKey(settings)
         if (apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY") {
             try {
                 val sdkResponse = callGeminiWithSdk(prompt, apiKey, settings.persona, memories, detectedLanguage)
                 if (sdkResponse.isNotBlank()) {
-                    val isStrategy = checkIsStrategyQuery(prompt, sdkResponse)
-                    val (enText, bnText, banglishText) = generateTriLingualOutputs(sdkResponse, detectedLanguage, prompt)
-
-                    return@withContext AIResponse(
-                        content = when (detectedLanguage) {
-                            "bn" -> bnText
-                            "banglish" -> banglishText
-                            else -> enText
-                        },
-                        isOnline = true,
-                        language = detectedLanguage,
-                        modelTag = "Gemini Flash SDK",
-                        contentBn = bnText,
-                        contentBanglish = banglishText,
-                        isBossStrategyProposal = isStrategy,
-                        strategyActionId = if (isStrategy) "strat_auto_${System.currentTimeMillis()}" else null
-                    )
+                    return@withContext buildOnlineResponse(sdkResponse, detectedLanguage, prompt, "Gemini Flash SDK")
                 }
+                failures.add("Gemini: empty reply")
             } catch (e: Exception) {
-                // Try Direct REST API as backup
+                failures.add("Gemini: ${shortError(e)}")
                 try {
                     val restResponse = callGeminiRestApi(prompt, apiKey, settings.persona, memories)
                     if (restResponse.isNotBlank()) {
-                        val isStrategy = checkIsStrategyQuery(prompt, restResponse)
-                        val (enText, bnText, banglishText) = generateTriLingualOutputs(restResponse, detectedLanguage, prompt)
-
-                        return@withContext AIResponse(
-                            content = when (detectedLanguage) {
-                                "bn" -> bnText
-                                "banglish" -> banglishText
-                                else -> enText
-                            },
-                            isOnline = true,
-                            language = detectedLanguage,
-                            modelTag = "Gemini Cloud REST",
-                            contentBn = bnText,
-                            contentBanglish = banglishText,
-                            isBossStrategyProposal = isStrategy,
-                            strategyActionId = if (isStrategy) "strat_auto_${System.currentTimeMillis()}" else null
-                        )
+                        return@withContext buildOnlineResponse(restResponse, detectedLanguage, prompt, "Gemini Cloud REST")
                     }
                 } catch (re: Exception) {
-                    // Fallback to local smart agent
+                    failures.add("Gemini REST: ${shortError(re)}")
                 }
+            }
+        } else {
+            failures.add("Gemini: no API key saved")
+        }
+
+        // 2) Other providers in catalog order (free tiers first, paid last).
+        //    A provider is skipped when it has no key or is switched off.
+        val systemPrompt = buildSystemPrompt(settings.persona, memories, detectedLanguage)
+        for (info in AiProviderCatalog.all) {
+            val providerSetting = settings.providerSettings[info.id] ?: continue
+            if (!providerSetting.enabled || providerSetting.apiKey.isBlank()) continue
+            val model = providerSetting.model.ifBlank { info.defaultModel }
+            try {
+                val text = callProvider(info, providerSetting.apiKey.trim(), model, systemPrompt, prompt)
+                if (text.isNotBlank()) {
+                    return@withContext buildOnlineResponse(text, detectedLanguage, prompt, "${info.displayName} - $model")
+                }
+                failures.add("${info.displayName}: empty reply")
+            } catch (e: Exception) {
+                failures.add("${info.displayName}: ${shortError(e)}")
             }
         }
 
-        // Default to built-in high-performance local AI response with tri-lingual generation
+        // 3) Built-in offline engine (last resort). We show WHY the online providers failed.
         val localResp = generateOfflineResponse(
             prompt = prompt,
             language = detectedLanguage,
@@ -150,7 +140,171 @@ class AIAgentEngine(
             memories = memories,
             hasImage = attachedImageUri != null
         )
-        return@withContext localResp.copy(modelTag = "Master AI Engine (Offline)")
+        val note = if (failures.isNotEmpty()) {
+            "⚠️ Online AI not available - used the offline engine.\n" +
+                failures.joinToString("\n") { "• $it" } + "\n\n"
+        } else ""
+        return@withContext localResp.copy(
+            content = note + localResp.content,
+            modelTag = "Master AI Engine (Offline)"
+        )
+    }
+
+    private fun buildOnlineResponse(
+        text: String,
+        detectedLanguage: String,
+        prompt: String,
+        modelTag: String
+    ): AIResponse {
+        val isStrategy = checkIsStrategyQuery(prompt, text)
+        val (enText, bnText, banglishText) = generateTriLingualOutputs(text, detectedLanguage, prompt)
+        val shown = when (detectedLanguage) {
+            "bn" -> bnText
+            "banglish" -> banglishText
+            else -> enText
+        }
+        return AIResponse(
+            content = shown,
+            isOnline = true,
+            language = detectedLanguage,
+            modelTag = modelTag,
+            contentBn = bnText,
+            contentBanglish = banglishText,
+            isBossStrategyProposal = isStrategy,
+            strategyActionId = if (isStrategy) "strat_auto_${System.currentTimeMillis()}" else null
+        )
+    }
+
+    private fun buildSystemPrompt(
+        persona: AIPersona,
+        memories: List<MemoryItem>,
+        detectedLanguage: String
+    ): String {
+        val memoryContext = if (memories.isNotEmpty()) {
+            val facts = memories.take(6).joinToString("; ") { "${it.title}: ${it.content}" }
+            "Saved Personal User Memories: [$facts]. "
+        } else ""
+
+        return "${persona.promptInstruction} $memoryContext " +
+            "You are the Autonomous Master AI Agent. Address the user with respect as 'Boss' when discussing business, tasks, or workflows. " +
+            "You have full native fluency in English, Bengali, and Banglish (phonetic Bengali written in English letters). " +
+            "Target response language code: $detectedLanguage. " +
+            "When the target language is Bengali, write natural, warm, conversational Bengali like an educated native speaker in Bangladesh - never stiff word-for-word translation. " +
+            "If this is a business, workflow, or strategic recommendation, conclude with: 'Boss, should I execute this strategy?'"
+    }
+
+    private fun callProvider(
+        info: AiProviderInfo,
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        prompt: String
+    ): String {
+        return when (info.format) {
+            ProviderFormat.OPENAI_COMPATIBLE -> callOpenAiCompatible(info.baseUrl, apiKey, model, systemPrompt, prompt)
+            ProviderFormat.ANTHROPIC -> callAnthropic(info.baseUrl, apiKey, model, systemPrompt, prompt)
+        }
+    }
+
+    private fun callOpenAiCompatible(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        prompt: String
+    ): String {
+        val json = JSONObject().apply {
+            put("model", model)
+            val messages = JSONArray()
+            messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+            messages.put(JSONObject().put("role", "user").put("content", prompt))
+            put("messages", messages)
+        }
+        val body = json.toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/chat/completions")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(body)
+            .build()
+
+        val result: String = client.newCall(request).execute().use { response ->
+            val bodyString = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code} ${extractApiError(bodyString)}".trim())
+            }
+            val message = JSONObject(bodyString)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+            if (message == null || message.isNull("content")) "" else message.optString("content", "")
+        }
+        return result
+    }
+
+    private fun callAnthropic(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        prompt: String
+    ): String {
+        val json = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", 2048)
+            put("system", systemPrompt)
+            val messages = JSONArray()
+            messages.put(JSONObject().put("role", "user").put("content", prompt))
+            put("messages", messages)
+        }
+        val body = json.toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/messages")
+            .addHeader("x-api-key", apiKey)
+            .addHeader("anthropic-version", "2023-06-01")
+            .post(body)
+            .build()
+
+        val result: String = client.newCall(request).execute().use { response ->
+            val bodyString = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code} ${extractApiError(bodyString)}".trim())
+            }
+            val blocks = JSONObject(bodyString).optJSONArray("content")
+            val sb = StringBuilder()
+            if (blocks != null) {
+                for (i in 0 until blocks.length()) {
+                    val block = blocks.optJSONObject(i)
+                    if (block != null && block.optString("type") == "text") {
+                        sb.append(block.optString("text", ""))
+                    }
+                }
+            }
+            sb.toString()
+        }
+        return result
+    }
+
+    private fun extractApiError(body: String): String {
+        return try {
+            val err = JSONObject(body).opt("error")
+            when (err) {
+                is JSONObject -> err.optString("message", "")
+                is String -> err
+                else -> ""
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /** Short, key-free error text that is safe to show in the chat. */
+    private fun shortError(e: Exception): String {
+        val raw = e.message ?: e.javaClass.simpleName
+        val masked = raw
+            .replace(Regex("(key=)[^&\\s]+"), "\$1***")
+            .replace(Regex("AIza[0-9A-Za-z_\\-]{20,}"), "***")
+            .replace(Regex("sk-[0-9A-Za-z_\\-]{16,}"), "***")
+        return if (masked.length > 180) masked.take(180) + "…" else masked
     }
 
     private fun checkIsStrategyQuery(prompt: String, response: String): Boolean {
@@ -185,6 +339,7 @@ class AIAgentEngine(
             $memoryContext
             You are the Autonomous Master AI Agent. Address the user with respect as 'Boss' when discussing business, tasks, or workflows.
             You have full native fluency in English, Bengali (বাংলা), and Banglish (phonetic Bengali written in English alphabets).
+            When the target language is Bengali, write natural, warm, conversational Bengali like an educated native speaker in Bangladesh - never stiff word-for-word translation.
             If this is a business, workflow, or strategic recommendation, conclude your response with:
             'Boss, should I execute this strategy?' with actionable execution choices.
         """.trimIndent()

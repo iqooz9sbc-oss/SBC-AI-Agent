@@ -3,6 +3,8 @@ package com.example.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.domain.model.AIPersona
+import com.example.domain.model.AiProviderCatalog
+import com.example.domain.model.ProviderSetting
 import com.example.domain.model.AgentSettings
 import com.example.domain.model.AppLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +27,7 @@ class SettingsRepository(context: Context) {
         val speechPitch = prefs.getFloat("speech_pitch", 1.0f)
         val autoSpeak = prefs.getBoolean("auto_speak", false)
         val useTermux = prefs.getBoolean("use_termux", false)
+        val providers = loadProviderSettings()
 
         return AgentSettings(
             isOnlineMode = isOnline,
@@ -35,8 +38,32 @@ class SettingsRepository(context: Context) {
             speechRate = speechRate,
             speechPitch = speechPitch,
             autoSpeakResponses = autoSpeak,
-            useLocalTermuxServer = useTermux
+            useLocalTermuxServer = useTermux,
+            providerSettings = providers
         )
+    }
+
+    private fun loadProviderSettings(): Map<String, ProviderSetting> {
+        val result = mutableMapOf<String, ProviderSetting>()
+        for (info in AiProviderCatalog.all) {
+            result[info.id] = ProviderSetting(
+                apiKey = prefs.getString("prov_${info.id}_key", "") ?: "",
+                model = prefs.getString("prov_${info.id}_model", info.defaultModel) ?: info.defaultModel,
+                enabled = prefs.getBoolean("prov_${info.id}_enabled", true)
+            )
+        }
+        return result
+    }
+
+    fun setProvider(id: String, apiKey: String, model: String, enabled: Boolean) {
+        prefs.edit()
+            .putString("prov_${id}_key", apiKey)
+            .putString("prov_${id}_model", model)
+            .putBoolean("prov_${id}_enabled", enabled)
+            .apply()
+        val updated = _settings.value.providerSettings.toMutableMap()
+        updated[id] = ProviderSetting(apiKey = apiKey, model = model, enabled = enabled)
+        _settings.value = _settings.value.copy(providerSettings = updated)
     }
 
     fun setOnlineMode(isOnline: Boolean) {
