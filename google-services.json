@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "555504009502",
+    "project_id": "sbc-personal-ai-agent",
+    "storage_bucket": "sbc-personal-ai-agent.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:555504009502:android:5f6b040c3c15b66add890f",
+        "android_client_info": {
+          "package_name": "com.aiassistant.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "555504009502-av64u1jivs8o0hnler8ut3ginhmg6lg6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAxuQgNPpJYR3nawDCPKDjAom5yxLlvOcQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "555504009502-av64u1jivs8o0hnler8ut3ginhmg6lg6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
