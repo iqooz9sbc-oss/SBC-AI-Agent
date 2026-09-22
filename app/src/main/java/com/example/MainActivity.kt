@@ -1,5 +1,21 @@
 import com.aiassistant.app.features.headshot.HeadshotGeneratorScreen
 import com.aiassistant.app.features.headshot.GeminiHeadshotRepository
+composable("headshot_generator") {
+    val headshotRepository = remember { 
+        GeminiHeadshotRepository(apiKey = "YOUR_GEMINI_API_KEY") 
+    }
+
+    HeadshotGeneratorScreen(
+        creditViewModel = creditViewModel,
+        repository = headshotRepository,
+        onNavigateToPaywall = { 
+            // Paywall নেভিগেশন
+        },
+        onBack = { 
+            // Back নেভিগেশন
+        }
+    )
+}
 package com.example
 
 import android.os.Bundle
