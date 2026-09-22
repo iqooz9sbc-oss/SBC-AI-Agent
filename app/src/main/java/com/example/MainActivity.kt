@@ -1,21 +1,3 @@
-import com.aiassistant.app.features.headshot.HeadshotGeneratorScreen
-import com.aiassistant.app.features.headshot.GeminiHeadshotRepository
-composable("headshot_generator") {
-    val headshotRepository = remember { 
-        GeminiHeadshotRepository(apiKey = "YOUR_GEMINI_API_KEY") 
-    }
-
-    HeadshotGeneratorScreen(
-        creditViewModel = creditViewModel,
-        repository = headshotRepository,
-        onNavigateToPaywall = { 
-            // Paywall নেভিগেশন
-        },
-        onBack = { 
-            // Back নেভিগেশন
-        }
-    )
-}
 package com.example
 
 import android.os.Bundle
@@ -30,8 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aiassistant.app.features.headshot.GeminiHeadshotRepository
+import com.aiassistant.app.features.headshot.HeadshotGeneratorScreen
 import com.example.domain.model.AppLanguage
 import com.example.ui.components.AgentBottomNav
 import com.example.ui.components.AgentTopAppBar
@@ -181,10 +166,17 @@ fun PersonalAIAgentApp(
                     viewModel = voiceViewModel,
                     isBn = isBn
                 )
-                NavTab.VISION -> VisionScreen(
-                    viewModel = visionViewModel,
-                    isBn = isBn
-                )
+                NavTab.VISION -> {
+                    val headshotRepository = remember {
+                        GeminiHeadshotRepository(apiKey = settings.geminiApiKey ?: "")
+                    }
+                    HeadshotGeneratorScreen(
+                        creditViewModel = chatViewModel.creditViewModel,
+                        repository = headshotRepository,
+                        onNavigateToPaywall = { mainViewModel.selectTab(NavTab.SETTINGS) },
+                        onBack = { mainViewModel.selectTab(NavTab.CHAT) }
+                    )
+                }
                 NavTab.AUTOMATION -> AutomationScreen(
                     viewModel = automationViewModel,
                     isBn = isBn
@@ -197,3 +189,4 @@ fun PersonalAIAgentApp(
         }
     }
 }
+
